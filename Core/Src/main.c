@@ -48,18 +48,33 @@ UART_HandleTypeDef huart2;
 
 /* PREPARATION DE LA TRAME CAN */
 CAN_TxHeaderTypeDef TxHeader;		// EN-TETE DE LA TRAME Tx
-CAN_RxHeaderTypeDef RxHeader;		// EN-TETE DE LA TRAME Rx
+//CAN_RxHeaderTypeDef RxHeader;		// EN-TETE DE LA TRAME Rx
 
 uint8_t TxData[8] = {
     0x10, 0x20, 0x30, 0x40,
     0x50, 0x60, 0x70, 0x80
 };
-uint8_t RxData[8];
+//uint8_t RxData[8];
 
 uint32_t TxMailbox;
 
-volatile uint32_t RxInterruptCount = 0;
-volatile uint8_t rxMessageReady = 0;
+//volatile uint32_t RxInterruptCount = 0;
+//volatile uint8_t rxMessageReady = 0;
+
+/* CIRCULAR QUEUE */
+#define CAN_RX_QUEUE_SIZE 8
+
+typedef struct
+{
+	CAN_RxHeaderTypeDef Header;
+	uint8_t Data[8];
+} CAN_Message_t;
+
+CAN_Message_t RxQueue[CAN_RX_QUEUE_SIZE];
+
+volatile uint8_t RxQueueHead = 0;
+volatile uint8_t RxQueueTail = 0;
+
 
 
 /* USER CODE END PV */
@@ -131,8 +146,6 @@ int main(void)
   TxHeader.DLC = 8;
   TxHeader.TransmitGlobalTime = DISABLE;
 
-  // HERE SEND & RECEIVE DATA ONE TIME
-
 
   /* USER CODE END 2 */
 
@@ -150,31 +163,23 @@ int main(void)
 	      Error_Handler();
 	  }
 
+	/* CHECK RX QUEUE */
+	if (RxQueueHead != RxQueueTail)
+	{
+		CAN_Message_t message;
 
-	  /* RECIEVE MESSAGE */
+		message = RxQueue[RxQueueTail];
 
-	  /* POLLING RECEPTION */
-	  /*
-	  if (HAL_CAN_GetRxFifoFillLevel(&hcan1, CAN_RX_FIFO0) > 0) 	// POLLING
-	  {
-	      HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &RxHeader, RxData);
-	  }
-	  */
+		RxQueueTail = (RxQueueTail + 1) % CAN_RX_QUEUE_SIZE;
+
+		/* PRECESSING Rx MESSAGES */
+	}
 
 
 	  /* INCREMENTAL DATA */
 	  for(int i=0; i<8 ; i++)
 	  {
 		  TxData[i]++;
-	  }
-
-
-	  /* PROCESSING RECIEVED CAN FRAME */
-	  if (rxMessageReady == 1)
-	  {
-		  rxMessageReady = 0;
-
-		  /* Process Data */
 	  }
 
 
@@ -285,20 +290,21 @@ static void MX_CAN1_Init(void)
 
 
   /* FILTER ACCEPT ALL */
+   sFilterConfig.FilterIdHigh = 0x0000;
+   sFilterConfig.FilterIdLow = 0x0000;
 
-  /* sFilterConfig.FilterIdHigh = 0x0000;
-   * sFilterConfig.FilterIdLow = 0x0000;
-   *
-   * sFilterConfig.FilterMaskIdHigh = 0x0000;
-   * sFilterConfig.FilterMaskIdLow = 0x0000;
-   */
+   sFilterConfig.FilterMaskIdHigh = 0x0000;
+   sFilterConfig.FilterMaskIdLow = 0x0000;
+
 
   /* FILTER ACCEPT ONLY 0x123 */
-  sFilterConfig.FilterIdHigh = 0x2460;
+  /*
+  sFilterConfig.FilterIdHigh = 0x2460; 		// ID 0x123 << 5
   sFilterConfig.FilterIdLow = 0x0000;
 
-  sFilterConfig.FilterMaskIdHigh = 0xFFE0;
+  sFilterConfig.FilterMaskIdHigh = 0xFFE0;		// MASK 0x7FF << 5
   sFilterConfig.FilterMaskIdLow = 0x0000;
+  */
 
   sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
 
@@ -393,18 +399,23 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
     if (hcan->Instance == CAN1)
     {
+        uint8_t nextHead;
 
-    	RxInterruptCount++;
+        nextHead = (RxQueueHead + 1) % CAN_RX_QUEUE_SIZE;
 
-        if (HAL_CAN_GetRxMessage(hcan,
-                                 CAN_RX_FIFO0,
-                                 &RxHeader,
-                                 RxData) != HAL_OK)
+        if (nextHead != RxQueueTail)
         {
-            Error_Handler();
-        }
+            HAL_CAN_GetRxMessage(hcan,
+                                 CAN_RX_FIFO0,
+                                 &RxQueue[RxQueueHead].Header,
+                                 RxQueue[RxQueueHead].Data);
 
-        rxMessageReady = 1;
+            RxQueueHead = nextHead;
+        }
+        else
+        {
+            /* Full Queue */
+        }
     }
 }
 
