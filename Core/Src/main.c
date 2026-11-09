@@ -58,6 +58,9 @@ uint8_t RxData[8];
 
 uint32_t TxMailbox;
 
+volatile uint32_t RxInterruptCount = 0;
+volatile uint8_t rxMessageReady = 0;
+
 
 /* USER CODE END PV */
 
@@ -113,6 +116,13 @@ int main(void)
       Error_Handler();
   }
 
+  /* INTERUPTION METHODE - MSG RECEPTION NOTIFICATION */
+  if (HAL_CAN_ActivateNotification(&hcan1,
+                                   CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
+  {
+      Error_Handler();
+  }
+
   /* TRANSMITION CONFIG */
   TxHeader.StdId = 0x123;
   TxHeader.ExtId = 0;
@@ -142,10 +152,15 @@ int main(void)
 
 
 	  /* RECIEVE MESSAGE */
-	  if (HAL_CAN_GetRxFifoFillLevel(&hcan1, CAN_RX_FIFO0) > 0) 	// POOLING
+
+	  /* POLLING RECEPTION */
+	  /*
+	  if (HAL_CAN_GetRxFifoFillLevel(&hcan1, CAN_RX_FIFO0) > 0) 	// POLLING
 	  {
 	      HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &RxHeader, RxData);
 	  }
+	  */
+
 
 	  /* INCREMENTAL DATA */
 	  for(int i=0; i<8 ; i++)
@@ -154,7 +169,16 @@ int main(void)
 	  }
 
 
-	  HAL_Delay(3000);
+	  /* PROCESSING RECIEVED CAN FRAME */
+	  if (rxMessageReady == 1)
+	  {
+		  rxMessageReady = 0;
+
+		  /* Process Data */
+	  }
+
+
+	  HAL_Delay(1000);
 
     /* USER CODE END WHILE */
 
@@ -362,6 +386,28 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+
+/* INTERUPTION RECEPTION */
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+    if (hcan->Instance == CAN1)
+    {
+
+    	RxInterruptCount++;
+
+        if (HAL_CAN_GetRxMessage(hcan,
+                                 CAN_RX_FIFO0,
+                                 &RxHeader,
+                                 RxData) != HAL_OK)
+        {
+            Error_Handler();
+        }
+
+        rxMessageReady = 1;
+    }
+}
+
 
 /* USER CODE END 4 */
 
